@@ -1,0 +1,5 @@
+kind: Fixed
+body: >-
+  forge: Remotes with shorthand URLs expanded by Git's `url.*.insteadOf`
+  (e.g. `gh:owner/repo`) are identified again without `spice.forge.kind`.
+time: 2026-10-21T12:00:00.000000+02:00

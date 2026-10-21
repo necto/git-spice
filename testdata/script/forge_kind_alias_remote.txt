@@ -22,16 +22,12 @@ gs repo init
 env SHAMHUB_USERNAME=alice
 gs auth login --forge shamhub
 
-# Without an explicit forge kind, the alias host is not enough to identify
-# the forge. The diagnostic points at the escape hatch.
+# With the Git config escape hatch, the alias-host remote submits
+# successfully and reports the real ShamHub change URL.
+# (Without it, the insteadOf-rewritten URL would also identify ShamHub;
+# that path is covered by remote_insteadof_shorthand.txt.)
 git add no-config.txt
 gs branch create no-config -m 'No config feature'
-! gs branch submit --fill
-stderr 'Could not guess repository from remote URL'
-stderr 'git config spice.forge.kind <forge>'
-
-# With the Git config escape hatch, the same alias-host remote submits
-# successfully and reports the real ShamHub change URL.
 git config spice.forge.kind shamhub
 gs branch submit --fill
 stderr $SHAMHUB_URL/alice/example/change/1

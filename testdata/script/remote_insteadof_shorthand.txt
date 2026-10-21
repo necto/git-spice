@@ -1,0 +1,33 @@
+# A remote configured with a shorthand URL (e.g. "gh:owner/repo")
+# that Git expands with url.*.insteadOf
+# identifies the forge without spice.forge.kind.
+
+as 'Test <test@example.com>'
+at '2026-10-21T12:00:00Z'
+
+cd repo
+git init
+git commit --allow-empty -m 'Initial commit'
+
+shamhub-setup
+shamhub register alice
+shamhub new origin alice/example.git
+git push origin main
+
+# The configured URL does not identify ShamHub;
+# only the URL Git rewrites it to does.
+git remote set-url origin sh:alice/example.git
+git config url.$SHAMHUB_URL/.insteadOf sh:
+
+gs repo init
+
+env SHAMHUB_USERNAME=alice
+gs auth login
+
+git add feature.txt
+gs branch create feature -m 'Add feature'
+gs branch submit --fill
+stderr $SHAMHUB_URL/alice/example/change/1
+
+-- repo/feature.txt --
+feature

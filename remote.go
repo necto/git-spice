@@ -116,6 +116,20 @@ func (r *remoteResolver) Resolve(
 
 	f, repoID, ok := forge.InferFromRemoteURL(r.Forges, parsedRemoteURL, &forge.NewOptions{HTTPClient: r.HTTPClient})
 	if !ok {
+		// The configured URL may be a shorthand (e.g. "gh:owner/repo")
+		// that identifies the forge only after url.*.insteadOf rewriting.
+		resolvedRemoteURL, err := r.Repository.RemoteURL(ctx, remote)
+		if err != nil {
+			return nil, nil, fmt.Errorf("get resolved remote URL: %w", err)
+		}
+
+		if resolvedRemoteURL != remoteURL {
+			if parsedResolvedRemoteURL, err := giturl.Parse(resolvedRemoteURL); err == nil {
+				f, repoID, ok = forge.InferFromRemoteURL(r.Forges, parsedResolvedRemoteURL, &forge.NewOptions{HTTPClient: r.HTTPClient})
+			}
+		}
+	}
+	if !ok {
 		return nil, nil, &unsupportedForgeError{
 			Remote:    remote,
 			RemoteURL: remoteURL,

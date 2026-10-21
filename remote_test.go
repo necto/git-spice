@@ -126,6 +126,39 @@ func TestRemoteResolver_Resolve_configuredKindConstructsWithResolvedURL(t *testi
 	assert.Equal(t, "https://example.com/owner/repo.git", gotRemoteURL.Raw)
 }
 
+func TestRemoteResolver_Resolve_insteadOfShorthand(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	repoID := forgetest.NewMockRepositoryID(ctrl)
+	testForge := forgetest.NewMockForge(ctrl)
+	testForge.EXPECT().ID().Return("test").AnyTimes()
+	testForge.EXPECT().
+		ParseRepositoryPath("/owner/repo.git").
+		Return(repoID, nil)
+
+	var forges forge.Registry
+	registerTestForge(&forges, "test", testForge)
+
+	// The configured URL is a shorthand like "gh:owner/repo.git"
+	// that only identifies the forge after url.*.insteadOf rewriting.
+	gotForge, gotRepoID, err := (&remoteResolver{
+		Forges: &forges,
+		Repository: remoteURLs{
+			config: map[string]string{
+				"origin": "ex:owner/repo.git",
+			},
+			resolved: map[string]string{
+				"origin": "https://example.com/owner/repo.git",
+			},
+		},
+		ForgeKind: "",
+	}).Resolve(t.Context(), "origin")
+	require.NoError(t, err)
+
+	assert.Same(t, testForge, gotForge)
+	assert.Equal(t, repoID, gotRepoID)
+}
+
 func TestRemoteResolver_Resolve_unknownConfiguredKind(t *testing.T) {
 	var forges forge.Registry
 	_, _, err := (&remoteResolver{
