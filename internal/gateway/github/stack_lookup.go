@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -158,7 +159,8 @@ func (c *Gateway) PullRequestsForStackUpdate(
 		return pullRequests, nil
 	}
 
-	// Resolve the ordered members for every unique stack ID in one query.
+	// Resolve the ordered members for every unique stack ID
+	// with as few queries as GitHub allows.
 	// A node may disappear after the pull request query; in that case, leaving
 	// Stack nil preserves the best snapshot this non-atomic operation obtained.
 	resolvedStacksByID, err := c.pullRequestStacksByID(ctx, stackIDsToResolve)
@@ -178,18 +180,18 @@ func (c *Gateway) PullRequestsForStackUpdate(
 }
 
 // pullRequestStacksByID loads every ordered member of each native stack.
-// The first page for all stacks is batched; stacks larger than one GraphQL page
+// The first page for all stacks is batched,
+// in batches of at most [_maxNodeIDs] stacks;
+// stacks larger than one GraphQL page
 // are completed with per-stack continuation queries.
 func (c *Gateway) pullRequestStacksByID(
 	ctx context.Context,
 	stackIDs []ID,
 ) (map[ID]*PullRequestStack, error) {
-	var result struct {
-		Nodes []*struct {
-			ID      ID                                `json:"id"`
-			Number  int                               `json:"number"`
-			Entries pullRequestStackEntriesConnection `json:"entries"`
-		} `json:"nodes"`
+	type stackNode struct {
+		ID      ID                                `json:"id"`
+		Number  int                               `json:"number"`
+		Entries pullRequestStackEntriesConnection `json:"entries"`
 	}
 	// Build one batched query for the first page of every referenced stack:
 	//
@@ -223,14 +225,21 @@ func (c *Gateway) pullRequestStacksByID(
 			}
 		}
 	`)
-	if err := c.executeGQL(ctx, query, struct {
-		IDs []ID `json:"ids"`
-	}{stackIDs}, &result); err != nil {
-		return nil, fmt.Errorf("query pull request stacks: %w", err)
+	var nodes []*stackNode
+	for batch := range slices.Chunk(stackIDs, _maxNodeIDs) {
+		var result struct {
+			Nodes []*stackNode `json:"nodes"`
+		}
+		if err := c.executeGQL(ctx, query, struct {
+			IDs []ID `json:"ids"`
+		}{batch}, &result); err != nil {
+			return nil, fmt.Errorf("query pull request stacks: %w", err)
+		}
+		nodes = append(nodes, result.Nodes...)
 	}
 
-	stacksByID := make(map[ID]*PullRequestStack, len(result.Nodes))
-	for _, res := range result.Nodes {
+	stacksByID := make(map[ID]*PullRequestStack, len(nodes))
+	for _, res := range nodes {
 		if res == nil {
 			continue
 		}

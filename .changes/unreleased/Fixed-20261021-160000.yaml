@@ -1,0 +1,6 @@
+kind: Fixed
+body: >-
+  github: Fix failure to count review threads
+  and look up native stacks
+  for more than 100 pull requests or stacks at once.
+time: 2026-10-21T16:00:00.000000+02:00

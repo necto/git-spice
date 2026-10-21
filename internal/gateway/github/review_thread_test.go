@@ -3,6 +3,7 @@ package github
 import (
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -93,4 +94,54 @@ func TestGateway_PullRequestReviewThreadCounts_rejectsMismatchedNodeCount(t *tes
 		t.Context(), []ID{"PR_1", "PR_2"}, nil,
 	)
 	assert.ErrorContains(t, err, "got 1 nodes for 2 IDs")
+}
+
+func TestGateway_PullRequestReviewThreadCounts_moreThanNodeLimit(t *testing.T) {
+	// GitHub rejects nodes(ids:) queries with more than 100 IDs.
+	var batchSizes []int
+	gateway := newTestGateway(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		var request struct {
+			Variables struct {
+				IDs []ID `json:"ids"`
+			} `json:"variables"`
+		}
+		require.NoError(t, json.UnmarshalRead(r.Body, &request))
+
+		ids := request.Variables.IDs
+		batchSizes = append(batchSizes, len(ids))
+		if len(ids) > 100 {
+			return graphQLResponse(`{"errors": [{
+				"type": "ARGUMENT_LIMIT",
+				"message": "You may not provide more than 100 node ids"
+			}]}`), nil
+		}
+
+		// Report each ID's numeric suffix as its thread count to check ordering.
+		nodes := make([]string, len(ids))
+		for i, id := range ids {
+			var n int
+			_, err := fmt.Sscanf(string(id), "PR_%d", &n)
+			require.NoError(t, err)
+			nodes[i] = fmt.Sprintf(`{"reviewThreads": {
+				"totalCount": %d,
+				"nodes": [],
+				"pageInfo": {"endCursor": "", "hasNextPage": false}
+			}}`, n)
+		}
+		return graphQLResponse(`{"data": {"nodes": [` + strings.Join(nodes, ",") + `]}}`), nil
+	}))
+
+	ids := make([]ID, 150)
+	for i := range ids {
+		ids[i] = ID(fmt.Sprintf("PR_%d", i))
+	}
+
+	got, err := gateway.PullRequestReviewThreadCounts(t.Context(), ids, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, []int{100, 50}, batchSizes)
+	require.Len(t, got, len(ids))
+	for i, counts := range got {
+		assert.Equal(t, i, counts.Total)
+	}
 }

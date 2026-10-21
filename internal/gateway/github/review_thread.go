@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 )
 
@@ -69,12 +70,8 @@ type reviewThreadsPage struct {
 }
 
 // pullRequestReviewThreadsFirstPages loads one review-thread page for each ID.
+// IDs are queried in batches of at most [_maxNodeIDs].
 func (c *Gateway) pullRequestReviewThreadsFirstPages(ctx context.Context, ids []ID, first int) ([]*reviewThreadsPage, error) {
-	var result struct {
-		Nodes []struct {
-			ReviewThreads reviewThreadsConnection `json:"reviewThreads"`
-		} `json:"nodes"`
-	}
 	query := compactGraphQL(`
 		query($ids:[ID!]!){
 			nodes(ids: $ids){
@@ -88,14 +85,21 @@ func (c *Gateway) pullRequestReviewThreadsFirstPages(ctx context.Context, ids []
 			}
 		}
 	`)
-	if err := c.executeGQL(ctx, query, struct {
-		IDs []ID `json:"ids"`
-	}{ids}, &result); err != nil {
-		return nil, fmt.Errorf("query pull request review threads: %w", err)
-	}
-	threads := make([]*reviewThreadsPage, len(result.Nodes))
-	for i, node := range result.Nodes {
-		threads[i] = reviewThreads(&node.ReviewThreads)
+	threads := make([]*reviewThreadsPage, 0, len(ids))
+	for batch := range slices.Chunk(ids, _maxNodeIDs) {
+		var result struct {
+			Nodes []struct {
+				ReviewThreads reviewThreadsConnection `json:"reviewThreads"`
+			} `json:"nodes"`
+		}
+		if err := c.executeGQL(ctx, query, struct {
+			IDs []ID `json:"ids"`
+		}{batch}, &result); err != nil {
+			return nil, fmt.Errorf("query pull request review threads: %w", err)
+		}
+		for _, node := range result.Nodes {
+			threads = append(threads, reviewThreads(&node.ReviewThreads))
+		}
 	}
 	return threads, nil
 }

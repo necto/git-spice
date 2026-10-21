@@ -77,7 +77,7 @@ Configuration (🔧):
                                    all.
   spice.submit.navigationCommentStyle.layout
                                    Layout of navigation comments. Must be one
-                                   of: tree, simple.
+                                   of: tree, simple, adjacent.
   spice.submit.navigationCommentStyle.marker
                                    Marker to use for the current change in
                                    navigation comments. Defaults to '◀'.

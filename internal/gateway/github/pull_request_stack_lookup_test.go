@@ -2,6 +2,7 @@ package github
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -259,5 +260,79 @@ func graphQLResponse(body string) *http.Response {
 		StatusCode: http.StatusOK,
 		Status:     "200 OK",
 		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}
+
+func TestGateway_PullRequestsForStackUpdate_moreThanNodeLimit(t *testing.T) {
+	// Every pull request is in its own native stack,
+	// so there are more stack IDs than GitHub accepts
+	// in one nodes(ids:) query.
+	const count = 150
+	var batchSizes []int
+	gateway := newTestGateway(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		var request struct {
+			Variables struct {
+				IDs []ID `json:"ids"`
+			} `json:"variables"`
+		}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+
+		ids := request.Variables.IDs
+		if ids == nil {
+			prs := make([]string, count)
+			for i := range count {
+				prs[i] = fmt.Sprintf(`"pr%[1]d": {
+					"id": "PR_%[1]d",
+					"state": "OPEN",
+					"headRefName": "b%[1]d",
+					"baseRefName": "main",
+					"headRepository": {"owner": {"login": "acme"}, "name": "repo"},
+					"stack": {"id": "STACK_%[1]d"}
+				}`, i)
+			}
+			return graphQLResponse(`{"data": {"repository": {` + strings.Join(prs, ",") + `}}}`), nil
+		}
+
+		batchSizes = append(batchSizes, len(ids))
+		if len(ids) > 100 {
+			return graphQLResponse(`{"errors": [{
+				"type": "ARGUMENT_LIMIT",
+				"message": "You may not provide more than 100 node ids"
+			}]}`), nil
+		}
+
+		nodes := make([]string, len(ids))
+		for i, id := range ids {
+			var n int
+			_, err := fmt.Sscanf(string(id), "STACK_%d", &n)
+			require.NoError(t, err)
+			nodes[i] = fmt.Sprintf(`{
+				"id": %q,
+				"number": %d,
+				"entries": {
+					"nodes": [{"pullRequest": {"number": %d, "state": "OPEN"}}],
+					"pageInfo": {"endCursor": "", "hasNextPage": false}
+				}
+			}`, id, n, n+1)
+		}
+		return graphQLResponse(`{"data": {"nodes": [` + strings.Join(nodes, ",") + `]}}`), nil
+	}))
+
+	numbers := make([]int, count)
+	for i := range numbers {
+		numbers[i] = i + 1
+	}
+
+	got, err := gateway.PullRequestsForStackUpdate(t.Context(), "acme", "repo", numbers)
+	require.NoError(t, err)
+
+	assert.Equal(t, []int{100, 50}, batchSizes)
+	require.Len(t, got, count)
+	for i, pr := range got {
+		require.NotNil(t, pr.Stack, "pull request %d", i)
+		assert.Equal(t, i, pr.Stack.Number)
+		assert.Equal(t, []PullRequestStackMember{
+			{Number: i + 1, State: PullRequestStateOpen},
+		}, pr.Stack.Members)
 	}
 }
