@@ -26,6 +26,7 @@ func TestGateway_RESTAuthenticationRefresh(t *testing.T) {
 			tokenCalls++
 			return fmt.Sprintf("token-%d", tokenCalls), nil
 		}),
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -51,6 +52,7 @@ func TestGateway_RESTTokenError(t *testing.T) {
 		tokenSourceFunc(func(context.Context) (string, error) {
 			return "", want
 		}),
+		nil,
 	)
 	require.NoError(t, err)
 

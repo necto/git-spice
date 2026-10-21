@@ -71,6 +71,7 @@ func TestRepository_SubmitChange_fromPushRepository(t *testing.T) {
 		srv.URL,
 		srv.Client(),
 		gatewayTestTokenSource("token"),
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -180,6 +181,7 @@ func TestRepository_addPullRequestMetadata(t *testing.T) {
 		srv.URL,
 		srv.Client(),
 		gatewayTestTokenSource("token"),
+		nil,
 	)
 	require.NoError(t, err)
 

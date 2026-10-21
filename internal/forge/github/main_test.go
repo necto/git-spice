@@ -20,7 +20,7 @@ func (testGatewayTokenSource) Token(context.Context) (string, error) {
 }
 
 func newTestGateway(t *testing.T, apiURL string) *github.Gateway {
-	client, err := github.NewGateway(apiURL, nil, testGatewayTokenSource{})
+	client, err := github.NewGateway(apiURL, nil, testGatewayTokenSource{}, nil)
 	require.NoError(t, err)
 	return client
 }

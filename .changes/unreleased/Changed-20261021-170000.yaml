@@ -1,0 +1,5 @@
+kind: Changed
+body: >-
+  github: Wait and retry requests rejected by GitHub's rate limits
+  instead of failing right away.
+time: 2026-10-21T17:00:00.000000+02:00

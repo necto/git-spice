@@ -92,6 +92,8 @@ func (c *Gateway) putREST(
 // Every 2xx response is successful.
 // The acceptedStatuses parameter adds operation-specific non-2xx responses
 // whose bodies still use result's wire shape.
+// Requests other than GET are paced, and rate limited requests are retried;
+// see [GatewayOptions].
 func (c *Gateway) doREST(
 	ctx context.Context,
 	method string,
@@ -100,47 +102,61 @@ func (c *Gateway) doREST(
 	result any,
 	acceptedStatuses ...int,
 ) error {
-	var requestBody io.Reader
+	var requestBody []byte
 	if input != nil {
 		var body bytes.Buffer
 		if err := json.NewEncoder(&body).Encode(input); err != nil {
 			return fmt.Errorf("encode REST request: %w", err)
 		}
-		requestBody = &body
+		requestBody = body.Bytes()
 	}
 
 	endpoint := c.restBaseURL.JoinPath(path...)
-	req, err := c.newRequest(ctx, method, endpoint.String(), requestBody)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Accept", restMediaType)
-	req.Header.Set("X-GitHub-Api-Version", restAPIVersion)
-	if input != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
+	mutating := method != http.MethodGet
+	return c.withRateLimit(ctx, mutating, func() error {
+		var body io.Reader
+		if requestBody != nil {
+			body = bytes.NewReader(requestBody)
+		}
+		req, err := c.newRequest(ctx, method, endpoint.String(), body)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Accept", restMediaType)
+		req.Header.Set("X-GitHub-Api-Version", restAPIVersion)
+		if input != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
 
-	res, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("send REST request: %w", err)
-	}
-	if (res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices) &&
-		!slices.Contains(acceptedStatuses, res.StatusCode) {
-		return readRESTError(res)
-	}
+		res, err := c.httpClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("send REST request: %w", err)
+		}
+		if (res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices) &&
+			!slices.Contains(acceptedStatuses, res.StatusCode) {
+			err := readRESTError(res)
+			var restErr *githubRESTError
+			if errors.As(err, &restErr) {
+				if wait, ok := c.httpRateLimit(res, restErr.diagnostic); ok {
+					return &rateLimitError{wait: wait, err: err}
+				}
+			}
+			return err
+		}
 
-	responseBody, err := io.ReadAll(res.Body)
-	err = errors.Join(err, res.Body.Close())
-	if err != nil {
-		return fmt.Errorf("read REST response: %w", err)
-	}
-	if result == nil || len(responseBody) == 0 {
+		responseBody, err := io.ReadAll(res.Body)
+		err = errors.Join(err, res.Body.Close())
+		if err != nil {
+			return fmt.Errorf("read REST response: %w", err)
+		}
+		if result == nil || len(responseBody) == 0 {
+			return nil
+		}
+		if err := json.Unmarshal(responseBody, result); err != nil {
+			return fmt.Errorf("decode REST response: %w", err)
+		}
 		return nil
-	}
-	if err := json.Unmarshal(responseBody, result); err != nil {
-		return fmt.Errorf("decode REST response: %w", err)
-	}
-	return nil
+	})
 }
 
 func readRESTError(res *http.Response) error {

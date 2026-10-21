@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"time"
 
 	"go.abhg.dev/gs/internal/forge"
 	"go.abhg.dev/gs/internal/gateway/github"
@@ -36,6 +37,12 @@ type Options struct {
 	// Token is a fixed token used to authenticate with GitHub.
 	// This may be used to skip the login flow.
 	Token string `name:"github-token" hidden:"" env:"GITHUB_TOKEN" help:"GitHub API token"`
+
+	// MutationInterval is the minimum time between requests
+	// that change data on GitHub.
+	// Use it to stay clear of GitHub's secondary rate limits
+	// when submitting large stacks.
+	MutationInterval time.Duration `name:"github-mutation-interval" hidden:"" config:"forge.github.mutationInterval" env:"GITHUB_MUTATION_INTERVAL" help:"Minimum time between GitHub API requests that change data"`
 }
 
 // Definition configures GitHub forge instances.
@@ -165,12 +172,18 @@ func (f *Forge) OpenRepository(ctx context.Context, tok forge.AuthenticationToke
 	}
 
 	gatewayTokens := newGatewayTokenSource(tokenSource)
-	gatewayClient, err := github.NewGateway(f.APIURL(), f.HTTPClient, gatewayTokens)
+	log := f.logger()
+	gatewayClient, err := github.NewGateway(f.APIURL(), f.HTTPClient, gatewayTokens, &github.GatewayOptions{
+		MutationInterval: f.Options.MutationInterval,
+		OnRateLimit: func(wait time.Duration, err error) {
+			log.Warn("Rate limited by GitHub, retrying", "wait", wait, "error", err)
+		},
+	})
 	if err != nil {
 		return nil, fmt.Errorf("create GitHub gateway: %w", err)
 	}
 
-	return newRepository(ctx, f, rid.owner, rid.name, f.logger(), gatewayClient, "")
+	return newRepository(ctx, f, rid.owner, rid.name, log, gatewayClient, "")
 }
 
 // RepositoryID is a unique identifier for a GitHub repository.

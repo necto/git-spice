@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // maxErrorBody limits the diagnostic content retained from an HTTP error
@@ -51,6 +52,12 @@ type Gateway struct {
 
 	// tokens supplies credentials at the lifetime of each operation.
 	tokens TokenSource
+
+	// throttle paces mutating requests and holds them back during rate limits.
+	throttle *throttle
+
+	// onRateLimit is called before waiting out a rate limit. May be nil.
+	onRateLimit func(time.Duration, error)
 }
 
 // NewGateway builds a client for a GitHub API base URL.
@@ -60,7 +67,8 @@ type Gateway struct {
 // NewGateway derives `/api/graphql` and `/api/v3`.
 // A nil HTTP client uses [http.DefaultClient].
 // The tokens source is required and is consulted for every HTTP request.
-func NewGateway(apiURLStr string, httpClient *http.Client, tokens TokenSource) (*Gateway, error) {
+// A nil opts uses defaults: no pacing, and retries after rate limits.
+func NewGateway(apiURLStr string, httpClient *http.Client, tokens TokenSource, opts *GatewayOptions) (*Gateway, error) {
 	apiURL, err := url.Parse(apiURLStr)
 	if err != nil {
 		return nil, fmt.Errorf("parse API URL: %w", err)
@@ -84,11 +92,17 @@ func NewGateway(apiURLStr string, httpClient *http.Client, tokens TokenSource) (
 		return nil, errors.New("token source is required")
 	}
 
+	if opts == nil {
+		opts = &GatewayOptions{}
+	}
+
 	return &Gateway{
 		graphQLEndpoint: graphQLURL.String(),
 		restBaseURL:     restBaseURL,
 		httpClient:      httpClient,
 		tokens:          tokens,
+		throttle:        newThrottle(opts.MutationInterval),
+		onRateLimit:     opts.OnRateLimit,
 	}, nil
 }
 

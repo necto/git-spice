@@ -50,6 +50,9 @@ type graphQLResponseEnvelope struct {
 // data-shape failures into errors with stage-specific context.
 // A non-empty GraphQL error list always wins over Data to preserve the client's
 // all-or-error result contract.
+//
+// Mutations are paced, and rate limited requests are retried;
+// see [GatewayOptions].
 func (c *Gateway) executeGQL(ctx context.Context, query string, variables, result any) error {
 	var body bytes.Buffer
 	if err := json.MarshalWrite(
@@ -63,53 +66,63 @@ func (c *Gateway) executeGQL(ctx context.Context, query string, variables, resul
 		return fmt.Errorf("encode GraphQL request: %w", err)
 	}
 
-	req, err := c.newRequest(ctx, http.MethodPost, c.graphQLEndpoint, &body)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
+	mutating := strings.HasPrefix(query, "mutation")
+	return c.withRateLimit(ctx, mutating, func() error {
+		req, err := c.newRequest(ctx, http.MethodPost, c.graphQLEndpoint, bytes.NewReader(body.Bytes()))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
 
-	res, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("send GraphQL request: %w", err)
-	}
-	// GraphQL envelopes are defined only for successful HTTP responses.
-	// Bound diagnostics from other responses before closing the body so an
-	// intermediary cannot make error reporting consume unbounded memory.
-	if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
-		diagnostic, err := io.ReadAll(io.LimitReader(res.Body, maxErrorBody))
+		res, err := c.httpClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("send GraphQL request: %w", err)
+		}
+		// GraphQL envelopes are defined only for successful HTTP responses.
+		// Bound diagnostics from other responses before closing the body so an
+		// intermediary cannot make error reporting consume unbounded memory.
+		if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
+			diagnostic, err := io.ReadAll(io.LimitReader(res.Body, maxErrorBody))
+			err = errors.Join(err, res.Body.Close())
+			if err != nil {
+				return fmt.Errorf(
+					"GitHub GraphQL HTTP status %s: read response: %w",
+					res.Status,
+					err,
+				)
+			}
+			err = fmt.Errorf(
+				"GitHub GraphQL HTTP status %s: %s",
+				res.Status,
+				strings.TrimSpace(string(diagnostic)),
+			)
+			if wait, ok := c.httpRateLimit(res, string(diagnostic)); ok {
+				return &rateLimitError{wait: wait, err: err}
+			}
+			return err
+		}
+
+		responseBody, err := io.ReadAll(res.Body)
 		err = errors.Join(err, res.Body.Close())
 		if err != nil {
-			return fmt.Errorf(
-				"GitHub GraphQL HTTP status %s: read response: %w",
-				res.Status,
-				err,
-			)
+			return fmt.Errorf("read GraphQL response: %w", err)
 		}
-		return fmt.Errorf(
-			"GitHub GraphQL HTTP status %s: %s",
-			res.Status,
-			strings.TrimSpace(string(diagnostic)),
-		)
-	}
 
-	responseBody, err := io.ReadAll(res.Body)
-	err = errors.Join(err, res.Body.Close())
-	if err != nil {
-		return fmt.Errorf("read GraphQL response: %w", err)
-	}
-
-	var envelope graphQLResponseEnvelope
-	if err := json.Unmarshal(responseBody, &envelope); err != nil {
-		return fmt.Errorf("decode GraphQL response: %w", err)
-	}
-	if len(envelope.Errors) > 0 {
-		return envelope.Errors
-	}
-	if err := json.Unmarshal(envelope.Data, result); err != nil {
-		return fmt.Errorf("decode GraphQL data: %w", err)
-	}
-	return nil
+		var envelope graphQLResponseEnvelope
+		if err := json.Unmarshal(responseBody, &envelope); err != nil {
+			return fmt.Errorf("decode GraphQL response: %w", err)
+		}
+		if len(envelope.Errors) > 0 {
+			if wait, ok := c.graphQLRateLimit(res.Header, envelope.Errors); ok {
+				return &rateLimitError{wait: wait, err: envelope.Errors}
+			}
+			return envelope.Errors
+		}
+		if err := json.Unmarshal(envelope.Data, result); err != nil {
+			return fmt.Errorf("decode GraphQL data: %w", err)
+		}
+		return nil
+	})
 }
 
 func (c *Gateway) mutate(ctx context.Context, mutation string, input, result any) error {

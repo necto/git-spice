@@ -337,6 +337,26 @@ or computed from the GitHub URL if not set.
 
 See also: [GitHub Enterprise](../setup/auth.md#github-enterprise).
 
+### spice.forge.github.mutationInterval
+
+<!-- gs:version unreleased -->
+
+Minimum time between GitHub API requests that change data,
+like creating pull requests or posting comments.
+Defaults to `$GITHUB_MUTATION_INTERVAL` if set,
+or no delay otherwise.
+
+GitHub rejects bursts of such requests with secondary rate limits,
+which you may hit when submitting large stacks.
+GitHub recommends waiting at least a second between them.
+
+```freeze language="terminal"
+{green}${reset} git config spice.forge.github.mutationInterval 1s
+```
+
+Regardless of this setting,
+git-spice waits and retries a few times when GitHub rate limits a request.
+
 ### spice.forge.github.url
 
 URL of the GitHub instance used for GitHub requests.

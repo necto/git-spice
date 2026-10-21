@@ -1,0 +1,6 @@
+kind: Added
+body: >-
+  github: Add spice.forge.github.mutationInterval
+  to space out requests that change data on GitHub,
+  avoiding secondary rate limits when submitting large stacks.
+time: 2026-10-21T17:00:00.000000+02:00

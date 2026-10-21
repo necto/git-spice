@@ -64,6 +64,7 @@ func newGateway(t *testing.T, httpClient *http.Client) *githubgateway.Gateway {
 		github.DefaultAPIURL,
 		&http.Client{Transport: httpClient.Transport},
 		testTokenSource("token"),
+		nil,
 	)
 	require.NoError(t, err)
 	return client
