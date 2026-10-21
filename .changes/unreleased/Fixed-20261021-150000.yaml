@@ -1,0 +1,5 @@
+kind: Fixed
+body: >-
+  github: Fix failure to look up change states
+  for stacks with more than 100 open pull requests.
+time: 2026-10-21T15:00:00.000000+02:00

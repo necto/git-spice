@@ -196,6 +196,104 @@ func TestPrinter_simple(t *testing.T) {
 	}
 }
 
+func TestPrinter_adjacent(t *testing.T) {
+	tests := []struct {
+		name    string
+		graph   []Item
+		current int
+		trunk   string
+		want    string
+	}{
+		{
+			name:    "Single",
+			graph:   []Item{{value: "#123", base: -1}},
+			current: 0,
+			trunk:   "main",
+			want: joinLines(
+				"- Previous: `main`",
+			),
+		},
+		{
+			name: "Bottom",
+			graph: []Item{
+				{value: "#123", base: -1},
+				{value: "#124", base: 0},
+			},
+			current: 0,
+			trunk:   "main",
+			want: joinLines(
+				"- Previous: `main`",
+				"- Next: #124",
+			),
+		},
+		{
+			name: "MidStack",
+			graph: []Item{
+				{value: "#123", base: -1},
+				{value: "#124", base: 0},
+				{value: "#125", base: 1},
+			},
+			current: 1,
+			trunk:   "main",
+			want: joinLines(
+				"- Previous: #123",
+				"- Next: #125",
+			),
+		},
+		{
+			name: "Top",
+			graph: []Item{
+				{value: "#123", base: -1},
+				{value: "#124", base: 0},
+				{value: "#125", base: 1},
+			},
+			current: 2,
+			trunk:   "main",
+			want: joinLines(
+				"- Previous: #124",
+			),
+		},
+		{
+			name: "NoTrunk",
+			graph: []Item{
+				{value: "#123", base: -1},
+				{value: "#124", base: 0},
+			},
+			current: 0,
+			want: joinLines(
+				"- Next: #124",
+			),
+		},
+		{
+			// Every change stacked directly above is listed.
+			name: "Fork",
+			graph: []Item{
+				{value: "#123", base: -1}, // 0
+				{value: "#124", base: 0},  // 1
+				{value: "#125", base: 0},  // 2
+				{value: "#126", base: 1},  // 3
+			},
+			current: 0,
+			trunk:   "main",
+			want: joinLines(
+				"- Previous: `main`",
+				"- Next: #124, #125",
+			),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got strings.Builder
+			Print(&got, tt.graph, tt.current, &PrintOptions{
+				Adjacent: true,
+				Trunk:    tt.trunk,
+			})
+			assert.Equal(t, tt.want, got.String())
+		})
+	}
+}
+
 type Item struct {
 	value string
 	base  int

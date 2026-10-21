@@ -1,0 +1,5 @@
+kind: Added
+body: >-
+  submit: Add `adjacent` value for `spice.submit.navigationCommentStyle.layout`
+  to list only the previous and next changes in navigation comments.
+time: 2026-10-21T14:00:00.000000+02:00

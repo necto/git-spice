@@ -997,6 +997,12 @@ Specifies how navigation comments lay out the stack.
   ending with the trunk branch.
   If the stack forks above the change,
   that comment uses the `tree` layout instead.
+- `adjacent` (<!-- gs:version unreleased -->):
+  list only the change below this one as "Previous"
+  (or the trunk branch, at the bottom of the stack),
+  and the changes directly above it as "Next".
+  Comments stay short in tall stacks,
+  and change only when an adjacent change does.
 
 **Example:**
 
@@ -1011,6 +1017,13 @@ This will render navigation comments like:
 - #124 ◀
 - #123
 - `main`
+```
+
+With `adjacent`, the comment on #124 renders as:
+
+```
+- Previous: #123
+- Next: #125
 ```
 
 ### spice.submit.navigationComment.downstack

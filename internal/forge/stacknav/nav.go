@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strings"
 )
 
 const (
@@ -28,8 +29,17 @@ type PrintOptions struct {
 	// because a flat list can't show the fork.
 	Simple bool
 
+	// Adjacent renders only the changes immediately below and above
+	// the current change as "Previous" and "Next" entries.
+	// If the stack forks above the current change,
+	// all changes directly above it are listed as "Next".
+	// Takes precedence over Simple.
+	Adjacent bool
+
 	// Trunk is the name of the trunk branch.
-	// If set, Simple output ends with it as the bottom-most entry.
+	// If set, Simple output ends with it as the bottom-most entry,
+	// and Adjacent output names it as the previous entry
+	// of a change at the bottom of the stack.
 	Trunk string
 }
 
@@ -103,6 +113,23 @@ func Print[N Node](w io.Writer, nodes []N, currentIdx int, opts *PrintOptions) {
 		}
 		visited[i] = true
 		return true
+	}
+
+	if opts != nil && opts.Adjacent {
+		if base := nodes[currentIdx].BaseIdx(); base >= 0 {
+			_, _ = fmt.Fprintf(w, "- Previous: %v\n", nodes[base].Value())
+		} else if opts.Trunk != "" {
+			_, _ = fmt.Fprintf(w, "- Previous: `%v`\n", opts.Trunk)
+		}
+
+		if len(aboves[currentIdx]) > 0 {
+			nexts := make([]string, len(aboves[currentIdx]))
+			for i, idx := range aboves[currentIdx] {
+				nexts[i] = nodes[idx].Value()
+			}
+			_, _ = fmt.Fprintf(w, "- Next: %v\n", strings.Join(nexts, ", "))
+		}
+		return
 	}
 
 	if opts != nil && opts.Simple {

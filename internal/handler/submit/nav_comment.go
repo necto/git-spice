@@ -148,8 +148,12 @@ func updateNavigationComments(
 	}
 	trunk := store.Trunk()
 	printOpts := &stacknav.PrintOptions{Marker: navCommentMarker}
-	if navCommentLayout == "simple" {
+	switch navCommentLayout {
+	case "simple":
 		printOpts.Simple = true
+		printOpts.Trunk = trunk
+	case "adjacent":
+		printOpts.Adjacent = true
 		printOpts.Trunk = trunk
 	}
 
